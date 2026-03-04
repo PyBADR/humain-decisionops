@@ -12,16 +12,18 @@ import {
   Play,
   FileCheck,
   BarChart3,
-  Search,
   User,
   Settings,
   MessageSquare,
   Menu,
   X,
+  Wifi,
+  WifiOff,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { GlobalSearch } from '@/components/global-search'
+import { useGlobalUpdates } from '@/hooks/use-websocket'
 
 const navigation = [
   { name: 'Overview', href: '/overview', icon: LayoutDashboard },
@@ -39,7 +41,7 @@ const navigation = [
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const [sidebarOpen, setSidebarOpen] = useState(true)
-  const [searchQuery, setSearchQuery] = useState('')
+  const { isConnected, newClaims } = useGlobalUpdates()
 
   return (
     <div className="min-h-screen bg-background">
@@ -63,26 +65,34 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </Link>
           </div>
 
-          {/* Center - Search */}
+          {/* Center - Global Search */}
           <div className="flex-1 max-w-xl mx-4">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search claims, customers, runs..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10 bg-secondary border-0"
-              />
-            </div>
+            <GlobalSearch />
           </div>
 
           {/* Right */}
           <div className="flex items-center gap-2">
+            {/* WebSocket Status Indicator */}
+            <div className="flex items-center gap-1 px-2 py-1 rounded bg-secondary" title={isConnected ? 'Real-time updates active' : 'Real-time updates disconnected'}>
+              {isConnected ? (
+                <Wifi className="h-3 w-3 text-green-500" />
+              ) : (
+                <WifiOff className="h-3 w-3 text-zinc-500" />
+              )}
+              <span className="text-xs text-muted-foreground">LIVE</span>
+            </div>
+            {newClaims.length > 0 && (
+              <span className="px-2 py-1 text-xs rounded bg-blue-500/20 text-blue-400">
+                {newClaims.length} new
+              </span>
+            )}
             <span className="px-2 py-1 text-xs rounded bg-secondary text-muted-foreground">
               DEV
             </span>
-            <Button variant="ghost" size="icon">
-              <Settings className="h-5 w-5" />
+            <Button variant="ghost" size="icon" asChild>
+              <Link href="/settings">
+                <Settings className="h-5 w-5" />
+              </Link>
             </Button>
             <Button variant="ghost" size="icon">
               <User className="h-5 w-5" />

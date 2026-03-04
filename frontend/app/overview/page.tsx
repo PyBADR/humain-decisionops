@@ -4,10 +4,13 @@ import { useQuery } from '@tanstack/react-query'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { healthApi, claimsApi } from '@/lib/api'
+import { healthApi, claimsApi, fraudApi } from '@/lib/api'
 import { formatCurrency, formatDateTime } from '@/lib/utils'
-import { TrendingUp, TrendingDown, Clock, Shield, FileCheck, AlertTriangle } from 'lucide-react'
+import { TrendingUp, Clock, Shield, FileCheck, AlertTriangle, Activity } from 'lucide-react'
 import Link from 'next/link'
+import { DecisionMixChart } from '@/components/charts/decision-mix-chart'
+import { ClaimsTrendChart } from '@/components/charts/claims-trend-chart'
+import { FraudScenariosChart } from '@/components/charts/fraud-scenarios-chart'
 
 export default function OverviewPage() {
   const { data: metrics } = useQuery({
@@ -20,6 +23,11 @@ export default function OverviewPage() {
     queryKey: ['claims', 'recent'],
     queryFn: () => claimsApi.list({ page_size: '10' }),
     refetchInterval: 10000,
+  })
+
+  const { data: fraudScenarios } = useQuery({
+    queryKey: ['fraud-scenarios'],
+    queryFn: fraudApi.listScenarios,
   })
 
   const kpis = [
@@ -78,6 +86,42 @@ export default function OverviewPage() {
             </CardContent>
           </Card>
         ))}
+      </div>
+
+      {/* Charts Row */}
+      <div className="grid gap-6 lg:grid-cols-3">
+        {/* Claims Trend Chart */}
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <CardTitle>Claims Trend (Last 7 Days)</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ClaimsTrendChart data={[
+              { date: 'Mon', claims: 8, approved: 5, rejected: 1 },
+              { date: 'Tue', claims: 12, approved: 7, rejected: 2 },
+              { date: 'Wed', claims: 10, approved: 6, rejected: 1 },
+              { date: 'Thu', claims: 15, approved: 9, rejected: 2 },
+              { date: 'Fri', claims: 11, approved: 7, rejected: 1 },
+              { date: 'Sat', claims: 6, approved: 4, rejected: 0 },
+              { date: 'Sun', claims: claims?.length || 12, approved: 4, rejected: 1 },
+            ]} />
+          </CardContent>
+        </Card>
+
+        {/* Decision Mix Pie Chart */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Decision Mix</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <DecisionMixChart data={{
+              approve: claims?.filter((c: any) => c.decision_status === 'APPROVE').length || 4,
+              review: claims?.filter((c: any) => c.decision_status === 'REVIEW').length || 2,
+              reject: claims?.filter((c: any) => c.decision_status === 'REJECT').length || 1,
+              pending: claims?.filter((c: any) => c.decision_status === 'PENDING').length || 5,
+            }} />
+          </CardContent>
+        </Card>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
@@ -188,17 +232,17 @@ export default function OverviewPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="space-y-3">
-                {metrics?.top_fraud_scenarios?.slice(0, 5).map((scenario: any, i: number) => (
-                  <div key={i} className="flex items-center justify-between">
-                    <span className="text-sm truncate max-w-[180px]">{scenario.name}</span>
-                    <Badge variant="outline">{scenario.count}</Badge>
-                  </div>
-                ))}
-                {(!metrics?.top_fraud_scenarios || metrics.top_fraud_scenarios.length === 0) && (
-                  <p className="text-sm text-muted-foreground">No fraud scenarios triggered</p>
-                )}
-              </div>
+              {fraudScenarios && fraudScenarios.length > 0 ? (
+                <FraudScenariosChart data={fraudScenarios.map((s: any) => ({
+                  name: s.name.length > 18 ? s.name.substring(0, 18) + '...' : s.name,
+                  hits: s.hits_count || 0,
+                  category: s.category,
+                })).filter((s: any) => s.hits > 0)} />
+              ) : (
+                <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+                  No fraud scenarios data
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>

@@ -1,8 +1,21 @@
 from pydantic import BaseModel, Field
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Literal
 from datetime import datetime, date
 from enum import Enum
 from uuid import UUID
+
+
+# Search schemas
+class SearchResult(BaseModel):
+    type: Literal["claim", "customer", "run"]
+    id: str
+    title: str
+    subtitle: str
+
+
+class SearchResponse(BaseModel):
+    results: List["SearchResult"]
+    total: int
 
 
 # Enums

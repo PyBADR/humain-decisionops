@@ -5,7 +5,7 @@ import structlog
 import time
 
 from app.config import get_settings
-from app.api import claims, knowledge, runs, audit, health, fraud, fast_lane, intake
+from app.api import claims, knowledge, runs, audit, health, fraud, fast_lane, intake, search, export, websocket
 
 settings = get_settings()
 
@@ -94,6 +94,9 @@ app.include_router(knowledge.router, prefix="/api/knowledge", tags=["Knowledge"]
 app.include_router(fraud.router, prefix="/api/fraud", tags=["Fraud"])
 app.include_router(fast_lane.router, prefix="/api/fast-lane", tags=["Fast Lane"])
 app.include_router(intake.router, prefix="/api/intake", tags=["Intake"])
+app.include_router(search.router, tags=["Search"])
+app.include_router(export.router, tags=["Export"])
+app.include_router(websocket.router, tags=["WebSocket"])
 
 
 @app.on_event("startup")

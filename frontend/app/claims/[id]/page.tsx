@@ -12,6 +12,8 @@ import { claimsApi, auditApi } from '@/lib/api'
 import { formatCurrency, formatDateTime } from '@/lib/utils'
 import { useToast } from '@/components/ui/use-toast'
 import { Play, FileText, Code, BookOpen, Shield, CheckCircle, Clock, AlertTriangle } from 'lucide-react'
+import { PDFViewer } from '@/components/pdf-viewer'
+import { useClaimUpdates } from '@/hooks/use-websocket'
 
 export default function ClaimDetailPage() {
   const params = useParams()
@@ -19,6 +21,10 @@ export default function ClaimDetailPage() {
   const { toast } = useToast()
   const queryClient = useQueryClient()
   const [activeTab, setActiveTab] = useState('document')
+  const [selectedDoc, setSelectedDoc] = useState<any>(null)
+
+  // Real-time updates via WebSocket
+  const { isConnected, pipelineProgress } = useClaimUpdates(claimId)
 
   const { data, isLoading } = useQuery({
     queryKey: ['claim', claimId],
@@ -107,14 +113,19 @@ export default function ClaimDetailPage() {
         </TabsList>
 
         <TabsContent value="document" className="mt-6">
-          <div className="grid gap-6 lg:grid-cols-2">
+          <div className="grid gap-6 lg:grid-cols-3">
+            {/* Document List */}
             <Card>
               <CardHeader><CardTitle>Documents</CardTitle></CardHeader>
               <CardContent>
                 {documents.length > 0 ? (
                   <div className="space-y-4">
                     {documents.map((doc: any) => (
-                      <div key={doc.id} className="p-4 border rounded-lg">
+                      <div 
+                        key={doc.id} 
+                        className={`p-4 border rounded-lg cursor-pointer transition-colors hover:bg-secondary/50 ${selectedDoc?.id === doc.id ? 'border-primary bg-secondary/30' : ''}`}
+                        onClick={() => setSelectedDoc(doc)}
+                      >
                         <div className="flex items-center justify-between">
                           <div>
                             <p className="font-medium">{doc.filename}</p>
@@ -155,18 +166,51 @@ export default function ClaimDetailPage() {
                 )}
               </CardContent>
             </Card>
-            <Card>
-              <CardHeader><CardTitle>Claim Details</CardTitle></CardHeader>
-              <CardContent>
-                <dl className="space-y-3">
-                  <div><dt className="text-sm text-muted-foreground">Policy Number</dt><dd className="font-mono">{claim?.policy_number}</dd></div>
-                  <div><dt className="text-sm text-muted-foreground">Incident Date</dt><dd>{claim?.incident_date}</dd></div>
-                  <div><dt className="text-sm text-muted-foreground">Location</dt><dd>{claim?.incident_location || 'N/A'}</dd></div>
-                  <div><dt className="text-sm text-muted-foreground">Description</dt><dd className="text-sm">{claim?.description || 'N/A'}</dd></div>
-                </dl>
+
+            {/* PDF Viewer */}
+            <Card className="lg:col-span-2">
+              <CardHeader><CardTitle>Document Preview</CardTitle></CardHeader>
+              <CardContent className="h-[600px]">
+                {selectedDoc ? (
+                  <PDFViewer 
+                    url={selectedDoc.storage_path || ''} 
+                    filename={selectedDoc.filename} 
+                  />
+                ) : documents.length > 0 ? (
+                  <div className="h-full flex items-center justify-center text-muted-foreground">
+                    <div className="text-center">
+                      <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                      <p>Select a document to preview</p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="h-full flex items-center justify-center text-muted-foreground">
+                    <div className="text-center">
+                      <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                      <p>No documents available</p>
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>
+
+          {/* Claim Details Card */}
+          <Card className="mt-6">
+            <CardHeader><CardTitle>Claim Details</CardTitle></CardHeader>
+            <CardContent>
+              <div className="grid gap-4 md:grid-cols-4">
+                <div><dt className="text-sm text-muted-foreground">Policy Number</dt><dd className="font-mono">{claim?.policy_number}</dd></div>
+                <div><dt className="text-sm text-muted-foreground">Incident Date</dt><dd>{claim?.incident_date}</dd></div>
+                <div><dt className="text-sm text-muted-foreground">Location</dt><dd>{claim?.incident_location || 'N/A'}</dd></div>
+                <div><dt className="text-sm text-muted-foreground">Amount</dt><dd className="font-semibold">{formatCurrency(claim?.amount || 0)}</dd></div>
+              </div>
+              <div className="mt-4">
+                <dt className="text-sm text-muted-foreground">Description</dt>
+                <dd className="text-sm mt-1">{claim?.description || 'N/A'}</dd>
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
 
         <TabsContent value="extraction" className="mt-6">

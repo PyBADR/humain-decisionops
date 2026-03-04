@@ -119,3 +119,39 @@ export const healthApi = {
   check: () => fetchApi<any>('/health'),
   metrics: () => fetchApi<any>('/metrics'),
 }
+
+// Search API
+export const searchApi = {
+  search: (query: string) => fetchApi<any>(`/api/search?q=${encodeURIComponent(query)}`),
+}
+
+// Unified API object for convenience
+export const api = {
+  ...claimsApi,
+  ...runsApi,
+  ...auditApi,
+  ...knowledgeApi,
+  ...fraudApi,
+  ...fastLaneApi,
+  ...intakeApi,
+  ...healthApi,
+  search: (query: string) => searchApi.search(query),
+  
+  // Export functions that return download URLs
+  exportAuditJson: (claimId?: string) => {
+    const query = claimId ? `?claim_id=${claimId}` : ''
+    return `${API_URL}/api/audit/export/json${query}`
+  },
+  exportAuditCsv: (claimId?: string) => {
+    const query = claimId ? `?claim_id=${claimId}` : ''
+    return `${API_URL}/api/audit/export/csv${query}`
+  },
+  exportClaimsJson: (params?: Record<string, string>) => {
+    const query = params ? `?${new URLSearchParams(params)}` : ''
+    return `${API_URL}/api/claims/export/json${query}`
+  },
+  exportClaimsCsv: (params?: Record<string, string>) => {
+    const query = params ? `?${new URLSearchParams(params)}` : ''
+    return `${API_URL}/api/claims/export/csv${query}`
+  },
+}
