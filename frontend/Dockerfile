@@ -1,41 +1,31 @@
-FROM node:20-alpine AS base
-
-# Install dependencies only when needed
-FROM base AS deps
+# ---- deps ----
+FROM node:20-alpine AS deps
 WORKDIR /app
+COPY package.json package-lock.json* ./
+RUN npm ci
 
-COPY package.json ./
-RUN npm install
-
-# Rebuild the source code only when needed
-FROM base AS builder
+# ---- build ----
+FROM node:20-alpine AS build
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-
-ENV NEXT_TELEMETRY_DISABLED 1
-
 RUN npm run build
 
-# Production image, copy all the files and run next
-FROM base AS runner
+# ---- run ----
+FROM node:20-alpine AS run
 WORKDIR /app
+ENV NODE_ENV=production
 
-ENV NODE_ENV production
-ENV NEXT_TELEMETRY_DISABLED 1
+# Railway supplies PORT at runtime
+ENV PORT=3000
 
-RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 nextjs
-
-COPY --from=builder /app/public ./public
-COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
-COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
-
-USER nextjs
+COPY --from=build /app/package.json ./package.json
+COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/.next ./.next
+COPY --from=build /app/public ./public
+COPY --from=build /app/next.config.* ./
+COPY --from=build /app/tailwind.config.* ./
+COPY --from=build /app/postcss.config.* ./
 
 EXPOSE 3000
-
-ENV PORT 3000
-ENV HOSTNAME "0.0.0.0"
-
-CMD ["node", "server.js"]
+CMD sh -c "npm run start -- -p ${PORT} -H 0.0.0.0"
