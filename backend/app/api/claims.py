@@ -301,7 +301,7 @@ async def run_claim_pipeline(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ):
-    """Run the decision pipeline for a claim."""
+    """Run the decision pipeline for a claim (async background)."""
     claim = db.query(ClaimORM).filter(ClaimORM.id == claim_id).first()
     if not claim:
         raise HTTPException(status_code=404, detail="Claim not found")
@@ -336,6 +336,94 @@ async def run_claim_pipeline(
         status=RunStatus.PENDING,
         message="Pipeline started"
     )
+
+
+@router.post("/{claim_id}/evaluate")
+async def evaluate_claim(
+    claim_id: UUID,
+    db: Session = Depends(get_db)
+):
+    """Synchronously evaluate a claim and return DecisionBundle.
+    
+    This runs the full decision pipeline and returns the result immediately.
+    Returns the exact DecisionBundle JSON structure.
+    """
+    from app.services.decision_engine import DecisionEngine
+    
+    claim = db.query(ClaimORM).filter(ClaimORM.id == claim_id).first()
+    if not claim:
+        raise HTTPException(status_code=404, detail="Claim not found")
+    
+    # Create run record
+    run = RunORM(
+        id=uuid4(),
+        claim_id=claim_id,
+        status="RUNNING",
+        provider=settings.effective_mode,
+        started_at=datetime.utcnow()
+    )
+    db.add(run)
+    db.flush()
+    
+    # Create audit event for pipeline start
+    audit_start = AuditEventORM(
+        id=uuid4(),
+        claim_id=claim_id,
+        run_id=run.id,
+        event_type="pipeline_started",
+        actor="system",
+        payload={"provider": run.provider, "mode": "synchronous"}
+    )
+    db.add(audit_start)
+    db.commit()
+    
+    try:
+        # Run decision engine
+        engine = DecisionEngine(db)
+        decision_bundle = engine.evaluate(claim, run)
+        
+        # Update run status
+        run.status = "COMPLETED"
+        run.completed_at = datetime.utcnow()
+        run.duration_ms = int((run.completed_at - run.started_at).total_seconds() * 1000)
+        
+        # Create audit event for completion
+        audit_complete = AuditEventORM(
+            id=uuid4(),
+            claim_id=claim_id,
+            run_id=run.id,
+            event_type="pipeline_completed",
+            actor="system",
+            payload={
+                "decision": decision_bundle["decision"],
+                "confidence": decision_bundle["confidence"],
+                "duration_ms": run.duration_ms
+            }
+        )
+        db.add(audit_complete)
+        db.commit()
+        
+        return decision_bundle
+        
+    except Exception as e:
+        # Update run with error
+        run.status = "FAILED"
+        run.completed_at = datetime.utcnow()
+        run.error_message = str(e)
+        
+        # Create audit event for failure
+        audit_fail = AuditEventORM(
+            id=uuid4(),
+            claim_id=claim_id,
+            run_id=run.id,
+            event_type="pipeline_failed",
+            actor="system",
+            payload={"error": str(e)}
+        )
+        db.add(audit_fail)
+        db.commit()
+        
+        raise HTTPException(status_code=500, detail=f"Pipeline failed: {str(e)}")
 
 
 @router.patch("/{claim_id}", response_model=Claim)

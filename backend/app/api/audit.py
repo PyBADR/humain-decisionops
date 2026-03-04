@@ -1,6 +1,6 @@
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, Response, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import desc
+from sqlalchemy import desc, asc
 from typing import List, Optional
 from uuid import UUID
 import json
@@ -12,6 +12,34 @@ from app.models.orm import AuditEvent as AuditEventORM
 from app.models.schemas import AuditEvent
 
 router = APIRouter()
+
+
+@router.get("/{claim_id}")
+async def get_audit_timeline(claim_id: UUID, db: Session = Depends(get_db)):
+    """Get ordered audit timeline for a specific claim.
+    
+    Returns audit events in chronological order (oldest first).
+    """
+    events = db.query(AuditEventORM).filter(
+        AuditEventORM.claim_id == claim_id
+    ).order_by(asc(AuditEventORM.created_at)).all()
+    
+    if not events:
+        # Return empty list, not 404 - claim may exist but have no events yet
+        return []
+    
+    return [
+        {
+            "id": str(e.id),
+            "claim_id": str(e.claim_id),
+            "run_id": str(e.run_id) if e.run_id else None,
+            "event_type": e.event_type,
+            "actor": e.actor,
+            "payload": e.payload,
+            "timestamp": e.created_at.isoformat() if e.created_at else None
+        }
+        for e in events
+    ]
 
 
 @router.get("", response_model=List[dict])

@@ -5,7 +5,7 @@ import structlog
 import time
 
 from app.config import get_settings
-from app.api import claims, knowledge, runs, audit, health, fraud, fast_lane, intake, search, export, websocket
+from app.api import claims, knowledge, runs, audit, health, fraud, fast_lane, intake, search, export, websocket, decisions
 
 settings = get_settings()
 
@@ -97,6 +97,7 @@ app.include_router(intake.router, prefix="/api/intake", tags=["Intake"])
 app.include_router(search.router, tags=["Search"])
 app.include_router(export.router, tags=["Export"])
 app.include_router(websocket.router, tags=["WebSocket"])
+app.include_router(decisions.router, prefix="/decisions", tags=["Decisions"])
 
 
 @app.on_event("startup")
@@ -115,7 +116,12 @@ async def startup_event():
     
     # Run seed if SEED_ON_STARTUP is true
     if settings.seed_on_startup:
-        logger.info("seed_on_startup_enabled", message="Seeding will be handled by database migrations")
+        logger.info("seed_on_startup_enabled", message="Running database seed...")
+        try:
+            from app.seed import run_seed
+            run_seed()
+        except Exception as e:
+            logger.error("seed_failed", error=str(e))
 
 
 @app.on_event("shutdown")

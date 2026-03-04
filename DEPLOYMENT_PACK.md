@@ -215,20 +215,47 @@ Your app is live at: `https://humain-decisionops-xxxxx.vercel.app`
 
 ## 7. Backend Remote Setup
 
-### Option A: Render (Free Tier)
+### Step 1: Create Neon Database (Free Tier)
+1. Go to https://neon.tech and sign up
+2. Click **"Create Project"**
+3. Project name: `humain-decisionops`
+4. Click **"Create Project"**
+5. Copy the connection string (starts with `postgresql://...`)
+
+### Step 2: Initialize Database
+1. In Neon Console, click **"SQL Editor"**
+2. Copy contents of `infra/postgres/01-init.sql` → Paste → Run
+3. Copy contents of `infra/postgres/02-seed.sql` → Paste → Run
+4. Verify: `SELECT COUNT(*) FROM claims;` should return 12
+
+### Step 3: Deploy Backend on Render (Free Tier)
 1. Go to https://render.com
 2. **New** → **Web Service**
-3. Connect GitHub repo
+3. Connect GitHub repo: `PyBADR/humain-decisionops`
 4. Configure:
+   - **Name:** `humain-decisionops-api`
    - **Root Directory:** `backend`
    - **Build Command:** `pip install -r requirements.txt`
    - **Start Command:** `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
 5. Add environment variables:
    ```
-   DATABASE_URL=<your-neon-postgres-url>
-   CORS_ALLOW_ORIGINS=https://your-app.vercel.app
+   DATABASE_URL=<your-neon-connection-string>
+   CORS_ALLOW_ORIGINS=https://your-app.vercel.app,http://localhost:3000
    HEURISTIC_MODE=true
+   AUTH_ENABLED=false
    ```
+6. Click **"Create Web Service"**
+7. Wait 2-5 minutes for deployment
+8. Copy your Render URL (e.g., `https://humain-decisionops-api.onrender.com`)
+
+### Step 4: Verify Backend
+```bash
+curl https://your-backend.onrender.com/health
+# Expected: {"status":"healthy","database":"connected",...}
+
+curl https://your-backend.onrender.com/api/claims
+# Expected: JSON array with 12 claims
+```
 
 ### Option B: Fly.io
 ```bash
