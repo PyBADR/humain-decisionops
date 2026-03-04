@@ -1,0 +1,119 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: humain-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-humain}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-humain_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-humain_decisionops}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql
+      - ./infra/postgres/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-humain} -d ${POSTGRES_DB:-humain_decisionops}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - humain-network
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: humain-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@humain.local}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin123}
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    ports:
+      - "5050:80"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - humain-network
+
+  mongo:
+    image: mongo:7
+    container_name: humain-mongo
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:-humain}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-humain_secret}
+    volumes:
+      - mongo_data:/data/db
+    ports:
+      - "27018:27017"
+    networks:
+      - humain-network
+
+  mongo-express:
+    image: mongo-express:latest
+    container_name: humain-mongo-express
+    environment:
+      ME_CONFIG_MONGODB_ADMINUSERNAME: ${MONGO_USER:-humain}
+      ME_CONFIG_MONGODB_ADMINPASSWORD: ${MONGO_PASSWORD:-humain_secret}
+      ME_CONFIG_MONGODB_URL: mongodb://${MONGO_USER:-humain}:${MONGO_PASSWORD:-humain_secret}@mongo:27017/
+      ME_CONFIG_BASICAUTH: false
+    ports:
+      - "8081:8081"
+    depends_on:
+      - mongo
+    networks:
+      - humain-network
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: humain-backend
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-humain}:${POSTGRES_PASSWORD:-humain_secret}@postgres:5432/${POSTGRES_DB:-humain_decisionops}
+      MONGO_URL: mongodb://${MONGO_USER:-humain}:${MONGO_PASSWORD:-humain_secret}@mongo:27017/
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      LANGSMITH_API_KEY: ${LANGSMITH_API_KEY:-}
+      LANGSMITH_PROJECT: ${LANGSMITH_PROJECT:-humain-decisionops}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      API_KEY: ${API_KEY:-}
+      AUTH_ENABLED: ${AUTH_ENABLED:-false}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    volumes:
+      - ./data/uploads:/app/uploads
+      - ./data/policies:/app/policies
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - humain-network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: humain-frontend
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    networks:
+      - humain-network
+
+volumes:
+  postgres_data:
+  pgadmin_data:
+  mongo_data:
+
+networks:
+  humain-network:
+    driver: bridge
