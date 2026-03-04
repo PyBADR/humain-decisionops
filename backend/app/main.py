@@ -114,23 +114,9 @@ async def startup_event():
         seed_on_startup=settings.seed_on_startup
     )
     
-    # Create database tables from ORM models
-    try:
-        from app.models.database import engine, Base
-        from app.models import orm  # Import all models
-        Base.metadata.create_all(bind=engine)
-        logger.info("database_tables_created", message="Database tables created successfully")
-    except Exception as e:
-        logger.error("database_tables_creation_failed", error=str(e))
-    
-    # Run seed if SEED_ON_STARTUP is true
-    if settings.seed_on_startup:
-        logger.info("seed_on_startup_enabled", message="Running database seed...")
-        try:
-            from app.seed_orm import run_seed
-            run_seed()
-        except Exception as e:
-            logger.error("seed_failed", error=str(e))
+    # Initialize database: create tables and seed if enabled
+    from app.db_init import init_database
+    init_database(seed_on_startup=settings.seed_on_startup)
 
 
 @app.on_event("shutdown")

@@ -1,4 +1,10 @@
-from .database import Base, get_db, engine
+from .database import Base, get_db, engine, SessionLocal
+# Import ORM models to register them with Base.metadata
+from .orm import (
+    User, Claim, ClaimDocument, DocForensicsSignal, Extraction,
+    PolicyDocument, PolicyChunk, RiskScore, Decision, AuditEvent,
+    Run, FraudScenario, FraudHit, FastLaneOverride, ConversationTranscript
+)
 from .schemas import (
     User, UserCreate,
     Claim, ClaimCreate, ClaimUpdate, ClaimList,
