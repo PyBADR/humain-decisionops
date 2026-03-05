@@ -130,36 +130,53 @@ async def list_claims(
     db: Session = Depends(get_db)
 ):
     """List claims with filters."""
-    query = db.query(ClaimORM)
+    import structlog
+    from sqlalchemy.exc import ProgrammingError, OperationalError
     
-    if search:
-        search_term = f"%{search}%"
-        query = query.filter(
-            (ClaimORM.claim_number.ilike(search_term)) |
-            (ClaimORM.customer_name.ilike(search_term)) |
-            (ClaimORM.policy_number.ilike(search_term))
+    logger = structlog.get_logger()
+    
+    try:
+        query = db.query(ClaimORM)
+        
+        if search:
+            search_term = f"%{search}%"
+            query = query.filter(
+                (ClaimORM.claim_number.ilike(search_term)) |
+                (ClaimORM.customer_name.ilike(search_term)) |
+                (ClaimORM.policy_number.ilike(search_term))
+            )
+        
+        if status:
+            query = query.filter(ClaimORM.decision_status == status)
+        
+        if triage:
+            query = query.filter(ClaimORM.triage_label == triage)
+        
+        if fast_lane is not None:
+            query = query.filter(ClaimORM.fast_lane_eligible == fast_lane)
+        
+        if fraud_hits:
+            # Filter claims that have fraud hits
+            query = query.filter(ClaimORM.fraud_score > 0.5)
+        
+        query = query.order_by(desc(ClaimORM.updated_at))
+        
+        # Pagination
+        offset = (page - 1) * page_size
+        claims = query.offset(offset).limit(page_size).all()
+        
+        return claims
+        
+    except (ProgrammingError, OperationalError) as e:
+        logger.error("claims.list.db_error", error=str(e), exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": "Database not initialized or schema mismatch",
+                "hint": "Enable RESET_DB_ON_STARTUP=true and RESET_DB_CONFIRM=YES then redeploy.",
+                "details": str(e)
+            }
         )
-    
-    if status:
-        query = query.filter(ClaimORM.decision_status == status)
-    
-    if triage:
-        query = query.filter(ClaimORM.triage_label == triage)
-    
-    if fast_lane is not None:
-        query = query.filter(ClaimORM.fast_lane_eligible == fast_lane)
-    
-    if fraud_hits:
-        # Filter claims that have fraud hits
-        query = query.filter(ClaimORM.fraud_score > 0.5)
-    
-    query = query.order_by(desc(ClaimORM.updated_at))
-    
-    # Pagination
-    offset = (page - 1) * page_size
-    claims = query.offset(offset).limit(page_size).all()
-    
-    return claims
 
 
 @router.get("/{claim_id}", response_model=dict)

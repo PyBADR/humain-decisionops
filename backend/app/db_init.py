@@ -2,15 +2,17 @@
 
 Handles:
 1. Import all ORM models (registers them with Base.metadata)
-2. Guarded DB reset (drop_all + create_all) if RESET_DB_ON_STARTUP=true AND RESET_DB_CONFIRM=YES
-3. Create all tables (if not reset)
-4. Seed demo data if SEED_ON_STARTUP=true and tables are empty
+2. Schema drift detection (checks if claims.claim_number exists)
+3. Guarded DB reset (drop_all + create_all) if RESET_DB_ON_STARTUP=true AND RESET_DB_CONFIRM=YES
+4. Create all tables (if not reset)
+5. Seed demo data if SEED_ON_STARTUP=true and tables are empty
 """
 import os
 import uuid
 from datetime import date
 import structlog
-from sqlalchemy import text
+from sqlalchemy import text, inspect
+from sqlalchemy.exc import ProgrammingError, OperationalError
 from app.models.database import engine, Base, SessionLocal
 # Import all ORM models to register with Base.metadata
 from app.models import orm
@@ -18,13 +20,113 @@ from app.models import orm
 logger = structlog.get_logger()
 
 
+def _normalize_bool_env(value: str) -> bool:
+    """Normalize environment variable to boolean (case-insensitive)."""
+    return value.lower() in ("true", "1", "yes") if value else False
+
+
+def _check_schema_drift(eng) -> dict:
+    """Check for schema drift - specifically if claims.claim_number column exists.
+    
+    Returns:
+        dict with keys: has_claims_table, has_claim_number_column, schema_ok, drift_detected, error
+    """
+    result = {
+        "has_claims_table": False,
+        "has_claim_number_column": False,
+        "schema_ok": False,
+        "drift_detected": False,
+        "error": None
+    }
+    
+    try:
+        inspector = inspect(eng)
+        tables = inspector.get_table_names()
+        
+        if "claims" in tables:
+            result["has_claims_table"] = True
+            columns = [col["name"] for col in inspector.get_columns("claims")]
+            
+            if "claim_number" in columns:
+                result["has_claim_number_column"] = True
+                result["schema_ok"] = True
+            else:
+                result["drift_detected"] = True
+                result["error"] = "SCHEMA DRIFT DETECTED: claims.claim_number column missing"
+                logger.error("schema.drift.detected", 
+                           message="claims.claim_number column missing",
+                           existing_columns=columns)
+        else:
+            # No claims table - fresh DB, schema is "ok" for initialization
+            result["schema_ok"] = True
+            
+    except Exception as e:
+        result["error"] = str(e)
+        logger.error("schema.check.failed", error=str(e))
+    
+    return result
+
+
+def check_db_health(eng=None, session_local=None) -> dict:
+    """Check database health for /health/db endpoint.
+    
+    Returns:
+        dict with db_ok, claims_count, schema_ok, error
+    """
+    eng = eng or engine
+    session_local = session_local or SessionLocal
+    
+    result = {
+        "db_ok": False,
+        "claims_count": 0,
+        "schema_ok": False,
+        "error": None
+    }
+    
+    try:
+        # Test connection
+        with eng.connect() as conn:
+            conn.execute(text("SELECT 1"))
+            result["db_ok"] = True
+        
+        # Check schema
+        drift_check = _check_schema_drift(eng)
+        result["schema_ok"] = drift_check["schema_ok"]
+        
+        if drift_check["error"] and drift_check["drift_detected"]:
+            result["error"] = drift_check["error"]
+        
+        # Count claims
+        if result["schema_ok"]:
+            db = session_local()
+            try:
+                result["claims_count"] = db.query(orm.Claim).count()
+            finally:
+                db.close()
+                
+    except Exception as e:
+        result["error"] = str(e)
+        result["db_ok"] = False
+    
+    return result
+
+
 def init_database(seed_on_startup: bool = False) -> bool:
     """Initialize database: optionally reset, create tables, and seed."""
     logger.info("db.init.start", message="Starting database initialization")
     
-    # Check for guarded reset flags
-    reset_enabled = os.getenv("RESET_DB_ON_STARTUP", "false").lower() == "true"
+    # Check for guarded reset flags (case-insensitive)
+    reset_enabled = _normalize_bool_env(os.getenv("RESET_DB_ON_STARTUP", "false"))
     reset_confirmed = os.getenv("RESET_DB_CONFIRM", "NO").upper() == "YES"
+    seed_env = _normalize_bool_env(os.getenv("SEED_ON_STARTUP", "false"))
+    
+    # Use env var or parameter
+    seed_on_startup = seed_on_startup or seed_env
+    
+    logger.info("db.init.config", 
+               reset_enabled=reset_enabled,
+               reset_confirmed=reset_confirmed,
+               seed_on_startup=seed_on_startup)
     
     try:
         # Step 1: Test connection
@@ -32,29 +134,48 @@ def init_database(seed_on_startup: bool = False) -> bool:
             conn.execute(text("SELECT 1"))
             logger.info("db.init.connection.ok", message="Database connection successful")
         
-        # Step 2: Guarded DB Reset (DEMO ONLY - requires both flags)
+        # Step 2: Check for schema drift
+        drift_check = _check_schema_drift(engine)
+        
+        if drift_check["drift_detected"]:
+            logger.warning("db.schema.drift", 
+                          message=drift_check["error"],
+                          has_claims_table=drift_check["has_claims_table"],
+                          has_claim_number=drift_check["has_claim_number_column"])
+            
+            if not (reset_enabled and reset_confirmed):
+                error_msg = (
+                    "SCHEMA DRIFT DETECTED: claims.claim_number column missing. "
+                    "Database tables exist but don't match ORM schema. "
+                    "To fix: Set RESET_DB_ON_STARTUP=true and RESET_DB_CONFIRM=YES then redeploy."
+                )
+                logger.error("db.init.drift.blocked", message=error_msg)
+                raise RuntimeError(error_msg)
+        
+        # Step 3: Guarded DB Reset (DEMO ONLY - requires both flags)
         if reset_enabled and reset_confirmed:
             logger.warning("db.reset.enabled", message="⚠️ DB RESET ENABLED: dropping all tables")
             Base.metadata.drop_all(bind=engine)
             logger.info("db.reset.drop_all.done", message="All tables dropped")
             Base.metadata.create_all(bind=engine)
-            logger.info("db.reset.create_all.done", message="All tables recreated with ORM schema")
+            logger.info("db.tables.created", message="All tables recreated with ORM schema")
             # Force seed after reset
             seed_database(force=True)
+            logger.info("db.seed.completed", message="Demo data seeded after reset")
         else:
             # Normal flow: create tables if not exist
             Base.metadata.create_all(bind=engine)
-            logger.info("db.init.create_all.done", message="Database tables ensured")
+            logger.info("db.tables.created", message="Database tables ensured")
             # Seed if enabled and empty
             if seed_on_startup:
                 seed_database(force=False)
         
-        logger.info("db.init.complete", message="Database initialization complete")
+        logger.info("db.init.done", message="Database initialization complete")
         return True
         
     except Exception as e:
         logger.error("db.init.failed", error=str(e), exc_info=True)
-        return False
+        raise
 
 
 def seed_database(force: bool = False) -> bool:

@@ -1,10 +1,12 @@
 from fastapi import APIRouter, Depends
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
-from app.models.database import get_db
+from app.models.database import get_db, engine, SessionLocal
 from app.models.schemas import HealthResponse, MetricsResponse
 from app.config import get_settings
+from app.db_init import check_db_health
 
 router = APIRouter()
 settings = get_settings()
@@ -43,6 +45,14 @@ async def health_check(db: Session = Depends(get_db)):
         mode=effective_mode,
         heuristic_mode=effective_mode == "heuristic"
     )
+
+
+@router.get("/health/db")
+async def health_db():
+    """Check database health with schema validation and claims count."""
+    result = check_db_health(engine, SessionLocal)
+    status_code = 200 if result["db_ok"] and result["schema_ok"] else 500
+    return JSONResponse(content=result, status_code=status_code)
 
 
 @router.get("/metrics", response_model=MetricsResponse)
