@@ -139,8 +139,8 @@ def create_demo_fraud_scenarios():
 def create_demo_policy_docs():
     """Create 2 demo policy documents."""
     return [
-        orm.PolicyDocument(id=uuid.uuid4(), name="Standard Medical Policy", file_path="/policies/medical_policy.pdf", content="Coverage includes routine checkups, emergency care, prescription medications, and specialist visits. Deductible: $500. Maximum annual benefit: $100,000.", doc_type="medical", indexed=True),
-        orm.PolicyDocument(id=uuid.uuid4(), name="Auto Insurance Policy", file_path="/policies/auto_policy.pdf", content="Comprehensive coverage for collision, theft, and liability. Deductible: $1,000. Coverage limit: $50,000 per incident.", doc_type="auto", indexed=True),
+        orm.PolicyDocument(id=uuid.uuid4(), name="Standard Medical Policy", filename="medical_policy.pdf", file_type="pdf", storage_path="/policies/medical_policy.pdf", indexed=True, chunk_count=5),
+        orm.PolicyDocument(id=uuid.uuid4(), name="Auto Insurance Policy", filename="auto_policy.pdf", file_type="pdf", storage_path="/policies/auto_policy.pdf", indexed=True, chunk_count=3),
     ]
 
 
